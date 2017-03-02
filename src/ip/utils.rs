@@ -2,11 +2,15 @@ extern crate std;
 
 use std::num::ParseIntError;
 
-#[derive(Debug, PartialEq)]
-struct NetworkAddr<T>(T);
+use super::ipv4::Ipv4;
+use super::ipv4mask::Ipv4Mask;
+use super::error::IpError;
 
 #[derive(Debug, PartialEq)]
-struct BroadcastAddr<T>(T);
+pub struct NetworkAddr<T>(pub T);
+
+#[derive(Debug, PartialEq)]
+pub struct BroadcastAddr<T>(pub T);
 
 type NetworkValues = (NetworkAddr<u32>, BroadcastAddr<u32>);
 
@@ -43,21 +47,14 @@ pub fn make_ip_from_mask(mask: u32) -> String {
     format!("{}.{}.{}.{}", oct1, oct2, oct3, oct4)
 }
 
-fn calc_network_values(host: &str, mask: u32) -> Result<NetworkValues, ParseIntError> {
-    let hostu32 = try!(make_mask_from_string(host));
-    Ok((NetworkAddr(hostu32 & mask), BroadcastAddr(hostu32 | !mask)))
-}
+pub fn calc_network_values(host: &str, mask: u32) -> Result<NetworkValues, IpError> {
+    let ip = try!(host.parse::<Ipv4>());
+    let mask = Ipv4Mask(mask); 
 
-pub fn guess_gateway(host: &str, subnet_mask: u32) {
+    let Ipv4(net) = ip & mask;
+    let Ipv4(bcast) = ip | !Ipv4::from(mask);
 
-    if let Ok((NetworkAddr(network), BroadcastAddr(broadcast))) = calc_network_values(host, subnet_mask) {
-        println!("The network address for this host is: {}", make_ip_from_mask(network));
-        println!("The broadcast address for this host is: {}", make_ip_from_mask(broadcast));
-        println!("I'm guessing the gateway is {} or {}", make_ip_from_mask(network+1), make_ip_from_mask(broadcast-1));
-    }
-    else {
-        println!("Couldn't parse '{}' as a valid IPv4 address", host);
-    }
+    Ok((NetworkAddr(net), BroadcastAddr(bcast)))
 }
 
 #[cfg(test)]

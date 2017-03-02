@@ -4,10 +4,12 @@ use std::str::FromStr;
 use std::fmt;
 use std::ops;
 use std::convert;
+use super::error::IpError;
+use super::ipv4mask::*;
 
 #[derive(Clone, Copy, PartialEq)] 
 #[cfg_attr(test, derive(Debug))]
-struct Ipv4(u32);
+pub struct Ipv4(pub u32);
 
 impl Ipv4 {
     fn octets(&self) -> [u8; 4] {
@@ -20,12 +22,39 @@ impl Ipv4 {
     }
 }
 
+impl From<Ipv4Mask> for Ipv4 {
+    fn from(mask: Ipv4Mask) -> Ipv4 {
+        let Ipv4Mask(inner) = mask;
+        Ipv4(inner)
+    }
+}
+
+impl ops::Deref for Ipv4 {
+    type Target = u32;
+    fn deref(&self) -> &Self::Target {
+        return &self.0
+    }
+}
+
 impl FromStr for Ipv4 {
-  type Err = std::num::ParseIntError;
+  type Err = IpError;
 
   fn from_str(s: &str) -> Result<Ipv4, Self::Err> {
-    use super::utils::make_mask_from_string;
-    let inner = try!(make_mask_from_string(s));
+    if s.split(".").count() != 4 {
+        return Err(IpError::InvalidOctetCountError);
+    }
+
+    let inner = try!( 
+       s.split(".")
+        .enumerate()
+        .fold(Ok(0_u32) as Result<u32, IpError>, |acc, (i, octet)| {
+            acc.and_then(|mask| {
+                let ibyte = try!(octet.parse::<u8>()) as u32;
+                Ok(mask | ibyte << (8 * (std::mem::size_of_val(&mask) - 1 - i)))
+            })
+        })
+    );
+
     Ok(Ipv4(inner))
   }
 }
@@ -62,6 +91,13 @@ impl ops::BitAnd for Ipv4 {
     }
 }
 
+impl ops::BitAnd<Ipv4Mask> for Ipv4 {
+    type Output = Ipv4;
+    fn bitand(self, rhs: Ipv4Mask) -> Self::Output {
+        self & Ipv4::from(rhs)
+    }
+}
+
 impl ops::BitOr for Ipv4 {
     type Output = Ipv4;
     fn bitor(self, rhs: Self) -> Self::Output {
@@ -71,23 +107,30 @@ impl ops::BitOr for Ipv4 {
     }
 }
 
-//impl ops::Sub for Ipv4 {
-//    type Output = Ipv4;
-//    fn sub(self, rhs: Ipv4) -> Self::Output {
-//        let Ipv4(lhs) = self;
-//        let Ipv4(rhs) = rhs;
-//        Ipv4(lhs - rhs)
-//    }
-//}
-//
-//impl ops::Add for Ipv4 {
-//    type Output = Ipv4;
-//    fn add(self, rhs: Ipv4) -> Self::Output {
-//        let Ipv4(lhs) = self;
-//        let Ipv4(rhs) = rhs;
-//        Ipv4(lhs + rhs)
-//    }
-//}
+impl ops::BitOr<Ipv4Mask> for Ipv4 {
+    type Output = Ipv4;
+    fn bitor(self, rhs: Ipv4Mask) -> Self::Output {
+        self | Ipv4::from(rhs)
+    }
+}
+
+impl ops::Sub for Ipv4 {
+    type Output = Ipv4;
+    fn sub(self, rhs: Self) -> Self::Output {
+        let Ipv4(lhs) = self;
+        let Ipv4(rhs) = rhs;
+        Ipv4(lhs - rhs)
+    }
+}
+
+impl ops::Add for Ipv4 {
+    type Output = Ipv4;
+    fn add(self, rhs: Self) -> Self::Output {
+        let Ipv4(lhs) = self;
+        let Ipv4(rhs) = rhs;
+        Ipv4(lhs + rhs)
+    }
+}
 
 impl ops::Sub<u32> for Ipv4 {
     type Output = Ipv4;
@@ -120,6 +163,12 @@ mod tests {
 
       let Ipv4(inner) = result.unwrap();
       assert_eq!(inner, ipv4!(192,168,0,1));
+    }
+
+    #[test]
+    fn test_parse_invalid() {
+        assert!("192.168.0.2.4.5".parse::<Ipv4>().is_err());
+        assert!("192.168".parse::<Ipv4>().is_err());
     }
 
     #[test]
